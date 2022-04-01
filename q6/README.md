@@ -2,6 +2,7 @@
 ## Resources
 ### Pre-Optimization
 #### Plan
+```
 EXPLAIN: -> Nested loop inner join  (cost=1041.00 rows=0) (actual time=6.311..6.311 rows=0 loops=1)
     -> Filter: (Student.id is not null)  (cost=41.00 rows=400) (actual time=0.109..2.631 rows=400 loops=1)
         -> Table scan on Student  (cost=41.00 rows=400) (actual time=0.105..2.428 rows=400 loops=1)
@@ -40,7 +41,9 @@ EXPLAIN: -> Nested loop inner join  (cost=1041.00 rows=0) (actual time=6.311..6.
                             -> Materialize with deduplication  (cost=20.25..20.25 rows=100)
                                 -> Filter: (Teaching.crsCode is not null)  (cost=10.25 rows=100)
                                     -> Table scan on Teaching  (cost=10.25 rows=100)
+```
 #### Profile
+```
 +----------+------------+------------------------------------------------------------------------------------------------------------------+
 | Query_ID | Duration   | Query                                                                                                            |
 +----------+------------+------------------------------------------------------------------------------------------------------------------+
@@ -53,8 +56,10 @@ EXPLAIN: -> Nested loop inner join  (cost=1041.00 rows=0) (actual time=6.311..6.
 |          |            |           (SELECT COUNT(*) FROM Course WHERE deptId = @ AND crsCode IN (SELECT crsCode FROM Teaching))) as alias |
 |          |            | WHERE id = alias.studId                                                                                          |
 +----------+------------+------------------------------------------------------------------------------------------------------------------+
+```
 ### Post-Optimization
 #### Plan
+```
 EXPLAIN: -> Nested loop inner join  (cost=21.50 rows=0) (actual time=2.014..2.014 rows=0 loops=1)
     -> Table scan on a  (cost=2.50..2.50 rows=0) (actual time=0.001..0.001 rows=0 loops=1)
         -> Materialize  (cost=2.50..2.50 rows=0) (actual time=2.012..2.012 rows=0 loops=1)
@@ -77,7 +82,9 @@ EXPLAIN: -> Nested loop inner join  (cost=21.50 rows=0) (actual time=2.014..2.01
                     -> Table scan on classes  (cost=0.14..2.74 rows=20) (actual time=0.002..0.007 rows=19 loops=19)
                         -> Materialize CTE classes if needed (query plan printed elsewhere)  (cost=12.48..15.07 rows=20) (never executed)
     -> Single-row index lookup on Student using PRIMARY (id=a.studId)  (cost=1.01 rows=1) (never executed)
+```
 #### Profile
+```
 +----------+------------+------------------------------------------------------------------------------------------------------------------+
 | Query_ID | Duration   | Query                                                                                                            |
 +----------+------------+------------------------------------------------------------------------------------------------------------------+
@@ -95,6 +102,7 @@ EXPLAIN: -> Nested loop inner join  (cost=21.50 rows=0) (actual time=2.014..2.01
 |          |            |     HAVING count = (SELECT COUNT(*) FROM classes)) AS a                                                          |
 |          |            | ON Student.id = a.studId                                                                                         |
 +----------+------------+------------------------------------------------------------------------------------------------------------------+
+```
 ## What was the bottleneck?
 Table scans:
 - 1 Student
@@ -109,11 +117,13 @@ I inspected the pre-optimization plan using EXPLAIN ANALYZE on the query.
 
 ## What method(s) did you use to resolve the bottleneck?
 I rewrote the query to use a CTE for the crsCodes for courses with deptId = @v8 and crsCode in Teaching. I added a primary key to Student, a covering index on Course (deptId, crsCode), an index on Teaching (crsCode), and finally a covering index on Transcript (crsCode, studId).
-
+```
 ALTER TABLE Course ADD INDEX q6_index_1 (deptId, crsCode);
 ALTER TABLE Teaching ADD INDEX q6_index_2 (crsCode);
 ALTER TABLE Transcript ADD INDEX q6_index_3 (crsCode, studId);
+```
 
+```
 With classes AS 
 (
 	SELECT crsCode FROM Course WHERE deptId = @v8 AND crsCode IN (SELECT crsCode FROM Teaching)
@@ -127,5 +137,4 @@ JOIN (
     GROUP BY studId 
     HAVING count = (SELECT COUNT(*) FROM classes)) AS a 
     ON Student.id = a.studId;
-
-
+```
